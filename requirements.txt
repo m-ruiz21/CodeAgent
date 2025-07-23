@@ -1,0 +1,6 @@
+llama-index
+fastmcp
+jupyter
+llama_index[langchain]
+tree-sitter
+tree_sitter_language_pack
