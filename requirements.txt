@@ -4,3 +4,5 @@ jupyter
 llama_index[langchain]
 tree-sitter
 tree_sitter_language_pack
+python-dotenv
+llama-index-embeddings-azure-openai

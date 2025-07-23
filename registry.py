@@ -5,10 +5,10 @@ DEFAULT_LINES_OVERLAP = 15
 DEFAULT_MAX_CHARS = 1500
 
 class CodeSplitterRegistry():  
-    def __init__(self, chunk_lines = DEFAULT_CHUNK_LINES, lines_overlap = DEFAULT_LINES_OVERLAP, max_chars = DEFAULT_MAX_CHARS) -> None:
+    def __init__(self, chunk_lines = DEFAULT_CHUNK_LINES, chunk_lines_overlap = DEFAULT_LINES_OVERLAP, max_chars = DEFAULT_MAX_CHARS) -> None:
         self.splitter_params = {
             "chunk_lines": chunk_lines,
-            "lines_overlap": lines_overlap,
+            "chunk_lines_overlap": chunk_lines_overlap,
             "max_chars": max_chars
         } 
         self.codeSplitters = {} 
@@ -53,7 +53,7 @@ class CodeSplitterRegistry():
         }
     
     
-    def get_splitter(self, path: str):
+    def get_splitter(self, path: str) -> CodeSplitter:
         file_extension = path.split('.')[-1]
         if file_extension not in self._language_map:
             raise ValueError(f"Unsupported file extension: {file_extension}")
