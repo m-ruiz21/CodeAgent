@@ -27,7 +27,7 @@ class CodeSplitterRegistry():
             "cc": "cpp",
             "h": "c",
             "hpp": "cpp",
-            "cs": "c_sharp",
+            "cs": "csharp",
             "php": "php",
             "scala": "scala",
             "swift": "swift",
@@ -52,10 +52,9 @@ class CodeSplitterRegistry():
             "exs": "elixir",
         }
     
-    
     def get_splitter(self, path: str) -> CodeSplitter:
         file_extension = path.split('.')[-1]
-        if file_extension not in self._language_map:
+        if not self.is_supported(path):
             raise ValueError(f"Unsupported file extension: {file_extension}")
 
         language = self._language_map[file_extension]
@@ -68,3 +67,8 @@ class CodeSplitterRegistry():
         )
 
         return self.codeSplitters[language]
+    
+    def is_supported(self, path: str) -> bool:
+        """Check if a file extension is supported by the registry."""
+        file_extension = path.split('.')[-1]
+        return file_extension in self._language_map

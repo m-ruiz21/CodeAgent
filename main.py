@@ -17,8 +17,6 @@ load_dotenv()
 # Get Azure OpenAI credentials from environment variables
 api_key = os.getenv("AZURE_OPENAI_API_KEY")
 azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-embedding_model = os.getenv("AZURE_OPENAI_MODEL")
-deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
 
 Settings.llm = AzureOpenAI(
     model="o3-mini",
@@ -29,8 +27,8 @@ Settings.llm = AzureOpenAI(
 )
 
 Settings.embed_model = AzureOpenAIEmbedding(
-    model=embedding_model,
-    deployment=deployment,
+    model="text-embedding-ada-002",
+    deployment="text-embedding-ada-002",
     api_key=api_key,
     azure_endpoint=azure_endpoint,
     api_version="2023-05-15",
@@ -43,36 +41,34 @@ def parse_gitignore(gitignore_path: str) -> List[str]:
         with open(gitignore_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                # Skip empty lines and comments
+                # skip empty lines and comments
                 if line and not line.startswith('#'):
                     patterns.append(line)
     except FileNotFoundError:
-        pass  # No .gitignore file found
+        pass  
     return patterns
 
 
 def should_ignore_file(file_path: str, gitignore_patterns: List[str], base_path: str) -> bool:
     """Check if a file should be ignored based on .gitignore patterns and .git files."""
-    # Get relative path from base directory
     rel_path = os.path.relpath(file_path, base_path)
-    
-    # Always ignore .git directory and its contents
+
+    # git files won't be in the .gitignore, so we handle them separately
     if rel_path.startswith('.git/') or rel_path == '.git' or '/.git/' in rel_path:
         return True
     
-    # Check gitignore patterns if they exist
     if not gitignore_patterns:
         return False
     
     for pattern in gitignore_patterns:
-        # Handle directory patterns (ending with /)
+        # handle directory patterns
         if pattern.endswith('/'):
             if rel_path.startswith(pattern) or ('/' + pattern) in rel_path:
                 return True
-        # Handle file patterns
+        # handle file patterns
         elif fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(os.path.basename(rel_path), pattern):
             return True
-        # Handle patterns with path separators
+        # handle patterns with path separators
         elif '/' in pattern and fnmatch.fnmatch(rel_path, pattern):
             return True
     
@@ -81,6 +77,10 @@ def should_ignore_file(file_path: str, gitignore_patterns: List[str], base_path:
 
 def split_file(path: str, registry: CodeSplitterRegistry) -> List[str]:
     """Split a code file into chunks using the appropriate CodeSplitter."""
+    # Check if the file extension is supported before attempting to read
+    if not registry.is_supported(path):
+        return []
+    
     with open(path, "r", encoding="utf-8") as f:
         print('Splitting file:', path)
         code = f.read()
@@ -129,10 +129,10 @@ def load_and_split(folder_path: str) -> list[Document]:
             
             # Skip files that match .gitignore patterns
             if should_ignore_file(full_path, gitignore_patterns, folder_path):
-                # print(f"Skipping ignored file: {full_path}")
                 continue
                 
             chunks = split_file(full_path, splitter_registry)
+            
             documents.extend(load_documents(chunks, full_path))
 
     return documents
@@ -152,12 +152,10 @@ def main():
 
     args = parser.parse_args()
 
-    # Load and split all code files
     docs = load_and_split(args.folder)
     print(f"Loaded {len(docs)} code chunks from '{args.folder}'")
 
-    # Build the vector store index
-    index = VectorStoreIndex.from_documents(docs)
+    index = VectorStoreIndex.from_documents(docs, show_progress=True)
     print("Built VectorStoreIndex over all code chunks")
 
     if args.persist_dir:
@@ -165,7 +163,7 @@ def main():
         print(f"Persisted vector store to '{args.persist_dir}'")
     
     # run search query over the index
-    query = "how does the registry work and how is it used in the main.py file?"
+    query = "How does the logging for the ArmorBlox Connector work? What url is it referencing and how does it conduct polling? Make sure to reference and include the code in your response with the file and line number you found the code snippets in."
     response = index.as_query_engine().query(query)
     print(f"Query response: {response}")
 
