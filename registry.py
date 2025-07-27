@@ -53,6 +53,7 @@ class CodeSplitterRegistry():
         }
     
     def get_splitter(self, path: str) -> CodeSplitter:
+        """Get a CodeSplitter for the given file path, creating it if necessary."""
         file_extension = path.split('.')[-1]
         if not self.is_supported(path):
             raise ValueError(f"Unsupported file extension: {file_extension}")

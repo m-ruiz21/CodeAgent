@@ -7,3 +7,5 @@ tree_sitter_language_pack
 python-dotenv
 llama-index-embeddings-azure-openai
 llama-index-readers-github
+llama-index-storage-docstore-redis
+llama-index-vector-stores-redis
