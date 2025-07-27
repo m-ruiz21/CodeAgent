@@ -10,6 +10,8 @@ from llama_index.storage.docstore.redis import RedisDocumentStore
 from llama_index.vector_stores.redis import RedisVectorStore
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline, IngestionCache, DocstoreStrategy
+from llama_index.core.node_parser import CodeSplitter
+
 from redisvl.schema import IndexSchema
 
 from github_loader import GithubReader
@@ -84,15 +86,18 @@ def main():
         ]
     })
 
-    
+    vector_store = RedisVectorStore(schema=schema, redis_url="redis://localhost:6379")
+
+    cache = IngestionCache(
+            cache=RedisKVStore.from_host_and_port("localhost", 6379),
+            collection="redis_cache"
+        )
+
     pipeline = IngestionPipeline(
         transformations=[embed_model],
         docstore=RedisDocumentStore.from_host_and_port("localhost", 6379, namespace="document_store"),
-        vector_store=RedisVectorStore(schema=schema, redis_url="redis://localhost:6379"),
-        cache=IngestionCache(
-            cache=RedisKVStore.from_host_and_port("localhost", 6379),
-            collection="redis_cache"
-        ),
+        vector_store=vector_store,
+        cache=cache,
         docstore_strategy=DocstoreStrategy.UPSERTS_AND_DELETE
     )
     
@@ -102,10 +107,10 @@ def main():
     nodes = pipeline.run(documents=documents)
     print(f"Ingested {len(nodes)} nodes.")
 
-    index = VectorStoreIndex.from_documents(
-        documents,
+    index = VectorStoreIndex.from_vector_store(
+        pipeline.vector_store, 
+        embed_model=embed_model,
         show_progress=True,
-        parse_code=True
     )
 
     # Example query
