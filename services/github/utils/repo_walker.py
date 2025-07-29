@@ -1,13 +1,15 @@
+import asyncio
 import base64
 import binascii
 from dataclasses import dataclass
 from typing import List, Optional
 
+import httpx
 from tqdm import tqdm
 
 from llama_index.readers.github.repository.github_client import GithubClient
 
-from services.github.utils.path_filter import PathFilter
+from services.github.utils.path_filter import FilteredObjectType, PathFilter
 
 @dataclass
 class RepoFile:
@@ -57,23 +59,31 @@ class RepoWalker:
         prefix: str = "",
     ) -> None:
         """Recursively walk the tree starting from the given SHA."""
-        tree = await self.client.get_tree(self.owner, self.repo, sha)
+        tree = await retries_wrapper(
+            lambda: self.client.get_tree(self.owner, self.repo, sha), 3, f"get_tree(owner={self.owner}, repo={self.repo}, sha={sha})"
+        )
         for obj in tree.tree:
             full_path = f"{prefix}{obj.path}" if prefix else obj.path
-            bar.set_description(f'processing path: {full_path}')
 
             if obj.type == "blob":
                 bar.update(1)
-                if not path_filter.match(full_path): continue
+                if not path_filter.match(full_path, FilteredObjectType.FILE): continue
 
                 text = await self._decode_blob(obj.sha)
-                if text: bucket.append(RepoFile(full_path, text))
+                if text: 
+                    bucket.append(RepoFile(full_path, text))
+                    bar.set_description(f"Scanning repo, ingested {len(bucket)} files")
             else:
+                if not path_filter.match(full_path, FilteredObjectType.DIRECTORY): continue
+
                 await self._walk(obj.sha, path_filter, bar, bucket, full_path + "/")
 
     async def _decode_blob(self, sha: str) -> Optional[str]:
         """Decode a blob's content from base64 to UTF-8."""
-        blob = await self.client.get_blob(self.owner, self.repo, sha)
+        blob = await retries_wrapper(
+            lambda: self.client.get_blob(self.owner, self.repo, sha), 3, f"get_blob(owner={self.owner}, repo={self.repo}, sha={sha})"
+        )
+
         if not blob or blob.encoding != "base64" or blob.content is None:
             return None
         try:
@@ -81,3 +91,16 @@ class RepoWalker:
             return raw.decode("utf-8")
         except (binascii.Error, UnicodeDecodeError):
             return None
+
+async def retries_wrapper(fun, retries, desc: str):
+    delay = 0
+    for attempt in range(retries):
+        try:
+            return await fun()
+        except httpx.HTTPStatusError as e:
+            print(f"Operation '{desc}' failed on attempt {attempt + 1}: {e}")
+            delay += 2 ** attempt
+            await asyncio.sleep(delay)
+
+    print(f"Operation '{desc}' failed after {retries} retries")
+    return None

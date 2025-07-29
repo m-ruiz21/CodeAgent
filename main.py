@@ -18,7 +18,7 @@ from llama_index.core.extractors import (
 
 from redisvl.schema import IndexSchema
 
-from services.github.utils.path_filter import Filter, FilterType
+from services.github.utils.path_filter import DirectoryFilter, FileFilter, FilterType
 from services.pipeline.context_enrichment.context_enricher import ContextEnricher
 from services.pipeline.code_splitter.code_splitter import CodeSplitter
 from services.github.github_loader import GithubReader
@@ -127,14 +127,18 @@ def main():
     vector_store.create_index()
     cache.clear()
 
-    # only get rust files
-    docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False, filters=[
-        Filter(regex=r"^Solutions/[^/]+/Data Connectors/?$", filter_type=FilterType.INCLUDE),
-    ]).load_data()
+    docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False,
+                        file_filters=[
+                            FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
+                        ],
+                        directory_filters=[
+                            DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
+                            DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
+                        ]).load_data()
 
     print("loaded", len(docs), "docs")
 
-    set_doc_service(DocService(docs)) # cache the documents for later use by our ContextEnricher
+    set_doc_service(DocService(docs)) # 'cache' the documents for later use by our ContextEnricher
 
     splitter_registry = CodeSplitterRegistry(chunk_lines=100, max_chars=3000)
 

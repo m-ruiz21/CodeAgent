@@ -1,13 +1,14 @@
 import asyncio
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
+import redis
 from tqdm import tqdm
 
 from llama_index.core import Document
 from llama_index.core.readers.base import BaseReader
 from llama_index.readers.github.repository.github_client import GithubClient
 
-from services.github.utils.path_filter import Filter, PathFilter
+from services.github.utils.path_filter import PathFilter, FileFilter, DirectoryFilter
 from services.github.utils.repo_walker import RepoFile, RepoWalker
 from services.pipeline.code_splitter.registry import CodeSplitterRegistry
 
@@ -24,14 +25,17 @@ class GithubReader(BaseReader):
         branch: str,
         parse: bool = True,
         show_progress: bool = True,
-        filters: Optional[List[Filter]] = None,
+        file_filters: Optional[List[FileFilter]] = None,
+        directory_filters: Optional[List[DirectoryFilter]] = None,
     ) -> None:
         self.url = url
         self.branch = branch
         self.client = GithubClient(github_token=token)
+        self.redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
         self.parse = parse
         self.show_progress = show_progress
-        self.filters = filters or []
+        self.file_filters = file_filters or []
+        self.directory_filters = directory_filters or []
         self.splitter_registry = CodeSplitterRegistry()
 
 
@@ -39,9 +43,13 @@ class GithubReader(BaseReader):
         owner, repo = self._parse_repo_url(self.url)
         print(f"Loading {owner}/{repo}@{self.branch}")
 
+        last_loaded_sha = self.redis_client.get("repo:last_sha")
+        if last_loaded_sha:
+            diff = self._diff(owner, repo, last_loaded_sha)
+
         repo_files = asyncio.run(
             RepoWalker(self.client, owner, repo, self.branch, self.show_progress).scrape(
-                PathFilter(self.filters)
+                PathFilter(self.file_filters, self.directory_filters)
             )
         )
         docs = self._files_to_docs(repo_files)
@@ -71,7 +79,6 @@ class GithubReader(BaseReader):
 
         docs: List[Document] = []
         for rf in repo_files:
-            bar.set_description(f"Splitting {rf.path}")
             bar.update(1)
             
             if not self.parse:
@@ -97,3 +104,24 @@ class GithubReader(BaseReader):
 
         bar.close()
         return docs
+
+    async def _diff(self, owner: str, repo: str, last_loaded_sha: str) -> List[Document]:
+        current_sha = self.client.get_branch(owner, repo, self.branch).commit.sha
+        if current_sha == last_loaded_sha:
+            print(f"Repository {owner}/{repo} has not changed since last load. Skipping.")
+            return []
+
+        # `endpoint` must match a key in GithubClient.ENDPOINTS.
+        # "compareCommits" expands to:
+        #   repos/{owner}/{repo}/compare/{base}...{head}
+        resp = await self.client.(
+            endpoint="compareCommits",
+            method="GET",
+            owner=OWNER,
+            repo=REPO,
+            base=BASE,
+            head=HEAD,
+        )                                # returns an httpx.Response:contentReference[oaicite:0]{index=0}
+
+        for f in resp.json()["files"]:    # same shape you get from the REST API
+            print(f["status"].ljust(9), f["filename"])
