@@ -2,10 +2,13 @@ llama-index
 fastmcp
 jupyter
 llama_index[langchain]
-tree-sitter
 tree_sitter_language_pack
+tree-sitter-languages
+tree-sitter
 python-dotenv
 llama-index-embeddings-azure-openai
 llama-index-readers-github
 llama-index-storage-docstore-redis
 llama-index-vector-stores-redis
+llama-index-extractors-entity
+span-marker

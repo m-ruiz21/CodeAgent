@@ -1,15 +1,15 @@
 import asyncio
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
-
 from tqdm import tqdm
 
 from llama_index.core import Document
 from llama_index.core.readers.base import BaseReader
 from llama_index.readers.github.repository.github_client import GithubClient
-from path_filter import Filter, PathFilter
-from registry import CodeSplitterRegistry
-from repo_walker import RepoFile, RepoWalker
+
+from services.github.utils.path_filter import Filter, PathFilter
+from services.github.utils.repo_walker import RepoFile, RepoWalker
+from services.pipeline.code_splitter.registry import CodeSplitterRegistry
 
 class GithubReader(BaseReader):
     """
@@ -64,7 +64,7 @@ class GithubReader(BaseReader):
         """Split each supported file into chunks and wrap them in Documents."""
         bar = tqdm(
             total=len(repo_files),
-            desc="Splitting files",
+            desc=f"Creating Documents from {len(repo_files)} repo files",
             unit="file",
             disable=not self.show_progress,
         )
@@ -73,14 +73,24 @@ class GithubReader(BaseReader):
         for rf in repo_files:
             bar.set_description(f"Splitting {rf.path}")
             bar.update(1)
-
+            
+            if not self.parse:
+                docs.append(
+                    Document(
+                        text=rf.content,
+                        doc_id=rf.path,
+                        metadata={"file_path": rf.path}
+                    )
+                )
+                continue
+            
             if not self.splitter_registry.is_supported(rf.path):
                 continue
 
             splitter = self.splitter_registry.get_splitter(rf.path)
             chunks = splitter.split_text(rf.content)
             docs.extend(
-                Document(text=chunk, metadata={"file_path": rf.path, "chunk_index": i})
+                Document(text=chunk, doc_id=f'{rf.path}::chunk-{i}', metadata={"file_path": rf.path, "chunk_index": i})
                 for i, chunk in enumerate(chunks)
             )
             bar.set_postfix({"chunks": len(chunks)})

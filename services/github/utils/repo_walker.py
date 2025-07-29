@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from llama_index.readers.github.repository.github_client import GithubClient
 
-from path_filter import PathFilter
+from services.github.utils.path_filter import PathFilter
 
 @dataclass
 class RepoFile:
@@ -59,17 +59,16 @@ class RepoWalker:
         """Recursively walk the tree starting from the given SHA."""
         tree = await self.client.get_tree(self.owner, self.repo, sha)
         for obj in tree.tree:
-            bar.update(1)
             full_path = f"{prefix}{obj.path}" if prefix else obj.path
-
-            if not path_filter.match(full_path):
-                continue
+            bar.set_description(f'processing path: {full_path}')
 
             if obj.type == "blob":
+                bar.update(1)
+                if not path_filter.match(full_path): continue
+
                 text = await self._decode_blob(obj.sha)
-                if text:
-                    bucket.append(RepoFile(full_path, text))
-            else:  # recurse into sub‑tree
+                if text: bucket.append(RepoFile(full_path, text))
+            else:
                 await self._walk(obj.sha, path_filter, bar, bucket, full_path + "/")
 
     async def _decode_blob(self, sha: str) -> Optional[str]:

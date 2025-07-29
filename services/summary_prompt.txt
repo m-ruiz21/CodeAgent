@@ -1,0 +1,4 @@
+In our summary, make sure to:
+1. Mention the main entities and their roles in the code.
+2. List any external dependencies and their significance.
+3. Provide a concise summary, under 100 words, that captures the essence of the code snippet and its relationship to the surrounding context.

@@ -1,5 +1,6 @@
 import os
 import argparse
+from typing import Dict
 from dotenv import load_dotenv
 
 from llama_index.core import Settings, VectorStoreIndex
@@ -8,22 +9,29 @@ from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.storage.kvstore.redis import RedisKVStore
 from llama_index.storage.docstore.redis import RedisDocumentStore
 from llama_index.vector_stores.redis import RedisVectorStore
-from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.ingestion import IngestionPipeline, IngestionCache, DocstoreStrategy
-from llama_index.core.node_parser import CodeSplitter
+from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.core.llms import LLM
+from llama_index.core.extractors import (
+    SummaryExtractor
+)
 
 from redisvl.schema import IndexSchema
 
-from github_loader import GithubReader
+from services.github.utils.path_filter import Filter, FilterType
+from services.pipeline.context_enrichment.context_enricher import ContextEnricher
+from services.pipeline.code_splitter.code_splitter import CodeSplitter
+from services.github.github_loader import GithubReader
+from services.pipeline.code_splitter.registry import CodeSplitterRegistry
+from services.cache.doc_service import DocService, set_doc_service
 
 load_dotenv()
+github_key = os.getenv("GITHUB_KEY")
 
-def configure_llama_models() -> str | None:
-    # Get Azure OpenAI credentials from environment variables
+def configure_llama_models() -> Dict[str, LLM|BaseEmbedding]:
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    github_key = os.getenv("GITHUB_KEY")
-
+    
     Settings.llm = AzureOpenAI(
         model="o3-mini",
         deployment_name="o3-mini",
@@ -40,7 +48,29 @@ def configure_llama_models() -> str | None:
         api_version="2023-05-15",
     )
 
-    return github_key
+    return {
+        'o3-mini': Settings.llm,
+        'text-embedding-ada-002': Settings.embed_model,
+        'gpt-4.1-mini': AzureOpenAI(
+            model="gpt-4.1-mini",
+            deployment_name="gpt-4.1-mini",
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            api_version="2024-12-01-preview",
+        ),
+    }
+
+SUMMARY_EXTRACT_TEMPLATE = """\
+Here is the content of the section:
+{context_str}
+
+Summarize the key topics and entities of the section. \
+
+In your summary, make sure to:
+1. Mention the main entities and their roles in the code.
+2. Provide a concise summary, under 100 words, that captures the essence of the code snippet and its relationship to the surrounding context.
+
+Summary: """
 
 
 def main():
@@ -65,9 +95,9 @@ def main():
     )
     args = parser.parse_args()
     
-    github_key = configure_llama_models()
-
-    embed_model = Settings.embed_model
+    models = configure_llama_models()
+    embed_model = models['text-embedding-ada-002']
+    pipeline_model = models['gpt-4.1-mini']
 
     schema = IndexSchema.from_dict({
         "index": {"name": "redis_vector_store", "prefix": "doc"},  # Index name and key prefix in Redis
@@ -80,7 +110,7 @@ def main():
                 "attrs": {
                     "dims": 1536,               # Dimension of Ada-002 embeddings
                     "algorithm": "hnsw",        # Use HNSW indexing for vectors
-                    "distance_metric": "cosine" # Cosine similarity for nearest neighbor search
+                    "distance_metric": "cosine"
                 }
             }
         ]
@@ -92,33 +122,42 @@ def main():
             cache=RedisKVStore.from_host_and_port("localhost", 6379),
             collection="redis_cache"
         )
+    
+    vector_store.delete_index()
+    vector_store.create_index()
+    cache.clear()
+
+    # only get rust files
+    docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False, filters=[
+        Filter(regex=r"^Solutions/[^/]+/Data Connectors/?$", filter_type=FilterType.INCLUDE),
+    ]).load_data()
+
+    print("loaded", len(docs), "docs")
+
+    set_doc_service(DocService(docs)) # cache the documents for later use by our ContextEnricher
+
+    splitter_registry = CodeSplitterRegistry(chunk_lines=100, max_chars=3000)
 
     pipeline = IngestionPipeline(
-        transformations=[embed_model],
+        transformations=[CodeSplitter(splitter_registry=splitter_registry), ContextEnricher(llm=pipeline_model), SummaryExtractor(llm=pipeline_model, prompt_template=SUMMARY_EXTRACT_TEMPLATE), embed_model],
         docstore=RedisDocumentStore.from_host_and_port("localhost", 6379, namespace="document_store"),
         vector_store=vector_store,
         cache=cache,
         docstore_strategy=DocstoreStrategy.UPSERTS_AND_DELETE
     )
-    
-    loader = GithubReader(token=str(github_key), url=args.url, branch=args.branch)
-    documents = loader.load_data()
 
-    nodes = pipeline.run(documents=documents)
+    print(f"Loaded {len(docs)} documents from GitHub repository.")
+    nodes = pipeline.run(documents=docs, show_progress=True)
     print(f"Ingested {len(nodes)} nodes.")
 
     index = VectorStoreIndex.from_vector_store(
-        pipeline.vector_store, 
+        vector_store,
         embed_model=embed_model,
         show_progress=True,
     )
 
-    # Example query
-    query = (
-        "Give a basic rundown of how the scrolling logic works"
-    )
-    response = index.as_query_engine().query(query)
-    print(f"Query response: {response}")
+    response = index.as_chat_engine().chat("What are the main structs defined in the code and what are their responsibilities? Count them for me, list them with the struct name, its fields, and a brief description of its purpose.")
+    print("Query response:", response)
 
 if __name__ == "__main__":
     main()
