@@ -43,10 +43,6 @@ class GithubReader(BaseReader):
         owner, repo = self._parse_repo_url(self.url)
         print(f"Loading {owner}/{repo}@{self.branch}")
 
-        last_loaded_sha = self.redis_client.get("repo:last_sha")
-        if last_loaded_sha:
-            diff = self._diff(owner, repo, last_loaded_sha)
-
         repo_files = asyncio.run(
             RepoWalker(self.client, owner, repo, self.branch, self.show_progress).scrape(
                 PathFilter(self.file_filters, self.directory_filters)
@@ -104,24 +100,3 @@ class GithubReader(BaseReader):
 
         bar.close()
         return docs
-
-    async def _diff(self, owner: str, repo: str, last_loaded_sha: str) -> List[Document]:
-        current_sha = self.client.get_branch(owner, repo, self.branch).commit.sha
-        if current_sha == last_loaded_sha:
-            print(f"Repository {owner}/{repo} has not changed since last load. Skipping.")
-            return []
-
-        # `endpoint` must match a key in GithubClient.ENDPOINTS.
-        # "compareCommits" expands to:
-        #   repos/{owner}/{repo}/compare/{base}...{head}
-        resp = await self.client.(
-            endpoint="compareCommits",
-            method="GET",
-            owner=OWNER,
-            repo=REPO,
-            base=BASE,
-            head=HEAD,
-        )                                # returns an httpx.Response:contentReference[oaicite:0]{index=0}
-
-        for f in resp.json()["files"]:    # same shape you get from the REST API
-            print(f["status"].ljust(9), f["filename"])

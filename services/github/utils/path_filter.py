@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
-
 class FilterType(Enum):
     INCLUDE = "include"
     EXCLUDE = "exclude"
@@ -16,7 +15,6 @@ class FilteredObjectType(Enum):
 class FileFilter:
     regex: str
     filter_type: FilterType
-
 
 @dataclass 
 class DirectoryFilter:
@@ -42,7 +40,9 @@ class PathFilter:
 
     def _match_file(self, path: str) -> bool:
         """Check if the file path matches the include and exclude filters."""
-
+        if not self.include_file_patterns and not self.exclude_file_patterns:
+            return True
+        
         return any(
             pf.search(path) for pf in self.include_file_patterns
         ) and not any(
@@ -51,7 +51,9 @@ class PathFilter:
     
     def _match_directory(self, path: str) -> bool:
         """Check if the directory path matches the include and exclude filters."""
-        
+        if not self.include_directory_patterns and not self.exclude_directory_patterns:
+            return True
+
         return any(
             pf.search(path) for pf in self.include_directory_patterns
         ) and not any(

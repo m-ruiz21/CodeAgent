@@ -7,7 +7,7 @@ start_time = time.time()
 from services.pipeline.code_splitter.registry import CodeSplitterRegistry
 
 class CodeSplitter(TransformComponent):
-    def __init__(self, splitter_registry: CodeSplitterRegistry, exclude_file_extensions: List[str] = None) -> None:
+    def __init__(self, splitter_registry: CodeSplitterRegistry, exclude_file_extensions: List[str] = []) -> None:
         """
         Initializes the CodeSplitter with a registry and optional file extensions to exclude.
         
@@ -15,7 +15,7 @@ class CodeSplitter(TransformComponent):
         :param exclude_file_extensions: List of file extensions to exclude from splitting.
         """
         self._registry = splitter_registry
-        self._exclude_file_extensions = set(exclude_file_extensions) or set([])
+        self._exclude_file_extensions = set(exclude_file_extensions)
 
     def __call__(self, nodes: List[BaseNode], **kwargs: Any) -> List[BaseNode]:
         if kwargs.get("show_progress", True):

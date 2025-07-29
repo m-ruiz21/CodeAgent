@@ -30,7 +30,6 @@ class ContextEnricher(TransformComponent):
 
             enriched_node = self._enrich_node(node)
             file_path = node.metadata.get("file_path", "")
-            # solution tends to follow the patter Solutions/{Solution name}/...
             solution =  file_path.split('/')[1]
             enriched_node.metadata.update({
                 "solution": solution,

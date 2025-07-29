@@ -136,6 +136,8 @@ def main():
                             DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
                         ]).load_data()
 
+    # docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False).load_data()
+
     print("loaded", len(docs), "docs")
 
     set_doc_service(DocService(docs)) # 'cache' the documents for later use by our ContextEnricher
@@ -160,7 +162,7 @@ def main():
         show_progress=True,
     )
 
-    response = index.as_chat_engine().chat("What are the main structs defined in the code and what are their responsibilities? Count them for me, list them with the struct name, its fields, and a brief description of its purpose.")
+    response = index.as_query_engine().query("What is the purpose of this code? What are the main components and their roles?")
     print("Query response:", response)
 
 if __name__ == "__main__":
