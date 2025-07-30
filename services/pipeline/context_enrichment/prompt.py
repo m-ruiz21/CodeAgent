@@ -5,9 +5,8 @@ You are an expert in analyzing code snippets and providing concise, structured c
 
 Given a code snippet and its surrounding context from a file, output a structured JSON object with:
 
-- "entities": List of the main entities (functions, methods, classes, types) directly shown in the snippet.
-- "imports": List of imports explicitly used in the snippet.
-- "local_dependencies": Attributes, methods, or internal functions directly referenced but not defined in the snippet itself.
+- "main_entities": List of the main entities (functions, methods, classes, types) directly shown in the snippet.
+- "dependency_entities": List of entities the code is dependent on and that you've added to the original snipppet context (e.g. imports, parent classes, etc.).
 - "prepend": Minimal context to place BEFORE the snippet. Include ONLY:
     - Relevant imports
     - Parent entity signatures (e.g., enclosing class or function definitions)
@@ -59,9 +58,8 @@ Desired output:
 
 ```json
 {{
-    "entities": ["ComplexNumber.__str__"],
-    "imports": ["utilities.format_complex"],
-    "local_dependencies": ["self.real", "self.imag"],
+    "main_entities": ["ComplexNumber.__str__"],
+    "dependency_entities": ["utilities.format_complex", "self.real", "self.imag"],
     "prepend": "
 from utilities import format_complex
 

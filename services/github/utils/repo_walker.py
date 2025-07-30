@@ -1,14 +1,16 @@
 from __future__ import annotations
 import asyncio, base64, binascii
 from dataclasses import dataclass
-from typing import List, Optional, Callable, Awaitable
+import time
+from typing import Any, Dict, List, Optional, Callable, Awaitable, TypeVar
 
 import httpx
 from tqdm import tqdm
 
-from llama_index.readers.github.repository.github_client import GithubClient
+from llama_index.readers.github.repository.github_client import GithubClient, GitBranchResponseModel, GitBlobResponseModel, GitTreeResponseModel
 from services.github.utils.path_filter import FilteredObjectType, PathFilter
 
+T = TypeVar("T")
 
 @dataclass
 class RepoFile:
@@ -26,7 +28,7 @@ class RepoWalker:
         repo: str,
         branch: str,
         show_progress: bool = True,
-        max_workers: int = 4,  
+        max_workers: int = 3,  
     ) -> None:
         self.client = client
         self.owner = owner
@@ -46,9 +48,21 @@ class RepoWalker:
 
         bar = tqdm(desc="Scanning repo", unit="obj", disable=not self.show_progress)
 
-        root_sha = (
-            await self.client.get_branch(self.owner, self.repo, self.branch)
-        ).commit.commit.tree.sha
+        branch = await retries_wrapper(
+            lambda: self.request(
+                GitBranchResponseModel,
+                "getBranch",
+                "GET",
+                owner=self.owner,
+                repo=self.repo,
+                branch=self.branch,
+                timeout=15,
+            ),
+            retries=3,
+            desc=f"getBranch(owner={self.owner}, repo={self.repo}, branch={self.branch})",
+        )
+
+        root_sha = branch.commit.commit.tree.sha
 
         bucket: List[RepoFile] = []
         semaphore = asyncio.Semaphore(self._max_workers)
@@ -80,7 +94,15 @@ class RepoWalker:
         """
         async with sem:
             tree = await retries_wrapper(
-                lambda: self.client.get_tree(self.owner, self.repo, sha),
+                lambda: self.request(
+                    GitTreeResponseModel,
+                    "getTree",
+                    "GET",
+                    owner=self.owner,
+                    repo=self.repo,
+                    tree_sha=sha,
+                    timeout=15
+                ),
                 retries=3,
                 desc=f"get_tree(owner={self.owner}, repo={self.repo}, sha={sha})",
             )
@@ -93,8 +115,7 @@ class RepoWalker:
             full_path = f"{prefix}{obj.path}" if prefix else obj.path
 
             if obj.type == "blob":
-                if not path_filter.match(full_path, FilteredObjectType.FILE):
-                    continue
+                if not path_filter.match(full_path, FilteredObjectType.FILE): continue
                 
                 tasks.append(
                     asyncio.create_task(
@@ -102,9 +123,9 @@ class RepoWalker:
                     )
                 )
 
-            else:  # directory
-                if not path_filter.match(full_path, FilteredObjectType.DIRECTORY):
-                    continue
+            elif obj.type == "tree": 
+                if not path_filter.match(full_path, FilteredObjectType.DIRECTORY): continue
+                
                 tasks.append(
                     asyncio.create_task(
                         self._walk(
@@ -117,6 +138,8 @@ class RepoWalker:
                         )
                     )
                 )
+            else: 
+                continue
 
         if tasks:
             await asyncio.gather(*tasks)
@@ -159,10 +182,19 @@ class RepoWalker:
         :raises httpx.HTTPStatusError: If the GitHub API request fails.
         """
         blob = await retries_wrapper(
-            lambda: self.client.get_blob(self.owner, self.repo, sha, timeout=30),
+            lambda: self.request(
+                    GitBlobResponseModel,
+                    "getBlob",
+                    "GET",
+                    owner=self.owner,
+                    repo=self.repo,
+                    file_sha=sha,
+                    timeout=30,
+                ),
             retries=3,
             desc=f"get_blob(owner={self.owner}, repo={self.repo}, sha={sha})",
         )
+
         if not blob or blob.encoding != "base64" or blob.content is None:
             return None
         try:
@@ -170,6 +202,34 @@ class RepoWalker:
             return raw.decode("utf-8", errors="replace")
         except (binascii.Error, UnicodeDecodeError):
             return None
+        
+    async def request(
+        self,
+        response_model: T,
+        endpoint: str,
+        method: str,
+        headers: Dict[str, Any] = {},
+        timeout: Optional[int] = 5,
+        retries: int = 0,
+        **kwargs: Any,
+    ) -> T:
+        res: httpx.Response = await self.client.request(
+            endpoint,
+            method,
+            headers,
+            timeout,
+            retries,
+            **kwargs
+        )
+
+        if res.status_code != 200:
+            raise httpx.HTTPStatusError(
+                f"Request failed with status {res.status_code}: {res.text}",
+                request=res.request,
+                response=res
+            )
+
+        return response_model.from_json(res.text) 
 
 
 async def retries_wrapper(
@@ -190,10 +250,19 @@ async def retries_wrapper(
     for attempt in range(retries):
         try:
             return await fun()
-        except Exception as e:
-            print(f"Operation '{desc}' failed on attempt {attempt + 1}: {e}")
-            delay = delay + 2 ** attempt
-            await asyncio.sleep(delay)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (403, 429):
+                reset = int(e.response.headers.get("x-rateLimit-reset", time.time()+60))
+                delay = max(reset - time.time(), 30)
+                print(f"Rate limit exceeded, retrying in {delay} seconds...")
+                await asyncio.sleep(delay)
+                print("Awake to resume operation")
         
-    print(f"Operation '{desc}' failed after {retries} retries")
-    return None
+        except Exception as e:
+            print(f"Operation '{desc}' failed on attempt {attempt + 1}: {type(e).__name__}: {e}")
+            delay = 2 ** attempt
+        finally:
+            if attempt > retries - 2:
+                print(f"Operation '{desc}' failed after {retries} retries")
+                raise 
+            await asyncio.sleep(delay)

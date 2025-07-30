@@ -29,12 +29,6 @@ class ContextEnricher(TransformComponent):
                 continue
 
             enriched_node = self._enrich_node(node)
-            file_path = node.metadata.get("file_path", "")
-            solution =  file_path.split('/')[1]
-            enriched_node.metadata.update({
-                "solution": solution,
-            })
-
             out_nodes.append(enriched_node)
 
         return out_nodes
@@ -58,8 +52,6 @@ class ContextEnricher(TransformComponent):
         node.text = new_text
         node.metadata.update({
             "entities": json.dumps(context.entities),
-            "local_dependencies": json.dumps(context.local_dependencies),
-            "imports": json.dumps(context.imports),
         })
 
         return node

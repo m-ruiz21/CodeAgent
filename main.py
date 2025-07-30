@@ -1,6 +1,7 @@
 import os
 import argparse
-from typing import Dict
+import pickle
+from typing import Dict, Iterator, List, TypeVar, Sequence
 from dotenv import load_dotenv
 
 from llama_index.core import Settings, VectorStoreIndex
@@ -12,21 +13,24 @@ from llama_index.vector_stores.redis import RedisVectorStore
 from llama_index.core.ingestion import IngestionPipeline, IngestionCache, DocstoreStrategy
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.llms import LLM
-from llama_index.core.extractors import (
-    SummaryExtractor
-)
-
 from redisvl.schema import IndexSchema
-
+from pipeline import run_pipeline
 from services.github.utils.path_filter import DirectoryFilter, FileFilter, FilterType
 from services.pipeline.context_enrichment.context_enricher import ContextEnricher
 from services.pipeline.code_splitter.code_splitter import CodeSplitter
 from services.github.github_loader import GithubReader
 from services.pipeline.code_splitter.registry import CodeSplitterRegistry
 from services.cache.doc_service import DocService, set_doc_service
+from services.pipeline.solution_adder import SolutionAdder
 
 load_dotenv()
 github_key = os.getenv("GITHUB_KEY")
+
+T = TypeVar("T")
+def batched(seq: Sequence[T], size: int) -> Iterator[List[T]]:
+    """Yield fixed‑size chunks from seq (last chunk may be smaller)."""
+    for idx in range(0, len(seq), size):
+        yield list(seq[idx : idx + size])
 
 def configure_llama_models() -> Dict[str, LLM|BaseEmbedding]:
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
@@ -67,7 +71,7 @@ Here is the content of the section:
 Summarize the key topics and entities of the section. \
 
 In your summary, make sure to:
-1. Mention the main entities and their roles in the code.
+1. Mention the main entities and their roles in the code. 
 2. Provide a concise summary, under 100 words, that captures the essence of the code snippet and its relationship to the surrounding context.
 
 Summary: """
@@ -95,10 +99,6 @@ def main():
     )
     args = parser.parse_args()
     
-    models = configure_llama_models()
-    embed_model = models['text-embedding-ada-002']
-    pipeline_model = models['gpt-4.1-mini']
-
     schema = IndexSchema.from_dict({
         "index": {"name": "redis_vector_store", "prefix": "doc"},  # Index name and key prefix in Redis
         "fields": [
@@ -118,51 +118,21 @@ def main():
 
     vector_store = RedisVectorStore(schema=schema, redis_url="redis://localhost:6379")
 
-    cache = IngestionCache(
-            cache=RedisKVStore.from_host_and_port("localhost", 6379),
-            collection="redis_cache"
-        )
-    
-    vector_store.delete_index()
-    vector_store.create_index()
-    cache.clear()
-
-    docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False,
-                        file_filters=[
-                            FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
-                        ],
-                        directory_filters=[
-                            DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
-                            DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
-                        ]).load_data()
-
-    # docs = GithubReader(token=str(github_key), url=args.url, branch=args.branch, parse=False).load_data()
-
-    print("loaded", len(docs), "docs")
-
-    set_doc_service(DocService(docs)) # 'cache' the documents for later use by our ContextEnricher
-
-    splitter_registry = CodeSplitterRegistry(chunk_lines=100, max_chars=3000)
-
-    pipeline = IngestionPipeline(
-        transformations=[CodeSplitter(splitter_registry=splitter_registry), ContextEnricher(llm=pipeline_model), SummaryExtractor(llm=pipeline_model, prompt_template=SUMMARY_EXTRACT_TEMPLATE), embed_model],
-        docstore=RedisDocumentStore.from_host_and_port("localhost", 6379, namespace="document_store"),
+    run_pipeline(
+        url=args.url,
+        branch=args.branch,
+        language_model=Settings.llm,
+        embed_model=Settings.embed_model,
         vector_store=vector_store,
-        cache=cache,
-        docstore_strategy=DocstoreStrategy.UPSERTS_AND_DELETE
+        github_key=github_key
     )
-
-    print(f"Loaded {len(docs)} documents from GitHub repository.")
-    nodes = pipeline.run(documents=docs, show_progress=True)
-    print(f"Ingested {len(nodes)} nodes.")
 
     index = VectorStoreIndex.from_vector_store(
         vector_store,
-        embed_model=embed_model,
         show_progress=True,
     )
 
-    response = index.as_query_engine().query("What is the purpose of this code? What are the main components and their roles?")
+    response = index.as_query_engine().query("What are the steps and parameters needed to deploy the 1password connector?")
     print("Query response:", response)
 
 if __name__ == "__main__":
