@@ -98,7 +98,9 @@ def main():
         help="Optional regex pattern to filter files. If not provided, all supported files will be processed."
     )
     args = parser.parse_args()
-    
+
+    models = configure_llama_models()
+
     schema = IndexSchema.from_dict({
         "index": {"name": "redis_vector_store", "prefix": "doc"},  # Index name and key prefix in Redis
         "fields": [
@@ -121,8 +123,8 @@ def main():
     run_pipeline(
         url=args.url,
         branch=args.branch,
-        language_model=Settings.llm,
-        embed_model=Settings.embed_model,
+        language_model=models['gpt-4.1-mini'],
+        embed_model=models['text-embedding-ada-002'],
         vector_store=vector_store,
         github_key=github_key
     )

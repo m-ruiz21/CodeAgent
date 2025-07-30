@@ -13,9 +13,8 @@ from llama_index.core.llms import LLM
 from llama_index.core.extractors import SummaryExtractor
 from llama_index.core.schema import BaseNode
 
-from redis import Redis
 from redisvl.schema import IndexSchema
-import tqdm
+from tqdm import tqdm
 
 from services.github.utils.path_filter import DirectoryFilter, FileFilter, FilterType
 from services.pipeline.context_enrichment.context_enricher import ContextEnricher
@@ -100,12 +99,17 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
   
     BATCH_SIZE = 100
     total_nodes = 0
-    progress = tqdm.tqdm(enumerate(batched(docs, BATCH_SIZE), 1), desc="Processing batches")
-    for batch_num, doc_batch in progress:
-        progress.display(f"Processing batch {batch_num} with {len(doc_batch)} documents")
+    print(f"Processing {len(docs)} documents in batches of {BATCH_SIZE}...")
+    for batch_num, doc_batch in enumerate(batched(docs, BATCH_SIZE), 1):
+        start_time = time.time()
+        print(f"Processing batch {batch_num} with {len(doc_batch)} documents")
         nodes = pipeline.run(documents=doc_batch, show_progress=True)
         total_nodes += len(nodes)
-        progress.display(f"-> {len(nodes)} nodes ingested (running total: {total_nodes})")
+        end_time = time.time()
+        
+        print(f"Batch {batch_num} processed in {end_time - start_time:.2f} seconds.")
+        print(f"-> {len(nodes)} nodes ingested (running total: {total_nodes})")
+        
     nodes = pipeline.run(documents=docs, show_progress=True)
     print(f"Ingested {len(nodes)} nodes.")
 

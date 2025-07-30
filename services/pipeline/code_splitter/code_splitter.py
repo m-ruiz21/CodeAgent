@@ -24,11 +24,7 @@ class CodeSplitter(TransformComponent):
         out_nodes = []
         for node in nodes:
             split_nodes = self._split_node(node)
-
-        for chunk, split_node in enumerate(split_nodes):
-            split_node.metadata["doc_id"] = f"{node.metadata['doc_id'] or node.metadata['file_path']}_chunk_{chunk}"
-        
-        out_nodes.extend(split_nodes)
+            out_nodes.extend(split_nodes)
 
         return out_nodes
     
