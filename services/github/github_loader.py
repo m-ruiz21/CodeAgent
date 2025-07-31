@@ -10,7 +10,7 @@ from llama_index.readers.github.repository.github_client import GithubClient
 
 from services.github.utils.path_filter import PathFilter, FileFilter, DirectoryFilter
 from services.github.utils.repo_walker import RepoFile, RepoWalker
-from services.pipeline.code_splitter.registry import CodeSplitterRegistry
+from services.pipeline.splitters.code_splitter.registry import CodeSplitterRegistry
 
 class GithubReader(BaseReader):
     """

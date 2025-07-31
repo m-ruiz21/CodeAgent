@@ -7,21 +7,11 @@ from dotenv import load_dotenv
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.llms.azure_openai import AzureOpenAI
-from llama_index.storage.kvstore.redis import RedisKVStore
-from llama_index.storage.docstore.redis import RedisDocumentStore
 from llama_index.vector_stores.redis import RedisVectorStore
-from llama_index.core.ingestion import IngestionPipeline, IngestionCache, DocstoreStrategy
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.llms import LLM
 from redisvl.schema import IndexSchema
 from pipeline import run_pipeline
-from services.github.utils.path_filter import DirectoryFilter, FileFilter, FilterType
-from services.pipeline.context_enrichment.context_enricher import ContextEnricher
-from services.pipeline.code_splitter.code_splitter import CodeSplitter
-from services.github.github_loader import GithubReader
-from services.pipeline.code_splitter.registry import CodeSplitterRegistry
-from services.cache.doc_service import DocService, set_doc_service
-from services.pipeline.solution_adder import SolutionAdder
 
 load_dotenv()
 github_key = os.getenv("GITHUB_KEY")
@@ -63,19 +53,6 @@ def configure_llama_models() -> Dict[str, LLM|BaseEmbedding]:
             api_version="2024-12-01-preview",
         ),
     }
-
-SUMMARY_EXTRACT_TEMPLATE = """\
-Here is the content of the section:
-{context_str}
-
-Summarize the key topics and entities of the section. \
-
-In your summary, make sure to:
-1. Mention the main entities and their roles in the code. 
-2. Provide a concise summary, under 100 words, that captures the essence of the code snippet and its relationship to the surrounding context.
-
-Summary: """
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -134,6 +111,8 @@ def main():
         show_progress=True,
     )
 
+    # response = index.as_query_engine().query("Create an in-depth summary of the repository.")
+    # response = index.as_query_engine().query("Get me all the snippets related to the x and y cursor variables.")
     response = index.as_query_engine().query("What are the steps and parameters needed to deploy the 1password connector?")
     print("Query response:", response)
 

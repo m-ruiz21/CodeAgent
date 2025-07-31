@@ -4,7 +4,7 @@ from llama_index.core.schema import TransformComponent, BaseNode, TextNode
 import time
 start_time = time.time()
 
-from services.pipeline.code_splitter.registry import CodeSplitterRegistry
+from services.pipeline.splitters.code_splitter.registry import CodeSplitterRegistry
 
 class CodeSplitter(TransformComponent):
     def __init__(self, splitter_registry: CodeSplitterRegistry, exclude_file_extensions: List[str] = []) -> None:
@@ -12,7 +12,7 @@ class CodeSplitter(TransformComponent):
         Initializes the CodeSplitter with a registry and optional file extensions to exclude.
         
         :param splitter_registry: The registry containing code splitters.
-        :param exclude_file_extensions: List of file extensions to exclude from splitting.
+        :param exclude_file_extensions: List of file extensions to exclude from splitting (without the dot).
         """
         self._registry = splitter_registry
         self._exclude_file_extensions = set(exclude_file_extensions)
@@ -41,4 +41,4 @@ class CodeSplitter(TransformComponent):
         splitter = self._registry.get_splitter(file_path)
 
         split_node_text = splitter.split_text(node.text)
-        return [TextNode(text=text, metadata={**node.metadata, "chunk": i}) for i, text in enumerate(split_node_text)]
+        return [TextNode(text=text, metadata={**node.metadata, "chunk": i, "parent_file_summary": node.metadata.get("section_summary", "[None Given or Available]")}) for i, text in enumerate(split_node_text)]
