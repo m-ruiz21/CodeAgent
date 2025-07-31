@@ -57,25 +57,25 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
     vector_store.create_index()
     cache.clear()
 
-        # if os.path.exists("docs.pkl"):
-        #     print("using cached docs.pkl")
-        #     with open("docs.pkl", "rb") as f:
-        #         docs = pickle.load(f)
-        # else:
-        #     docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False,
-        #                         file_filters=[
-        #                             FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
-        #                             FileFilter(regex=r"\.zip$", filter_type=FilterType.EXCLUDE),
-        #                         ],
-        #                         directory_filters=[
-        #                             DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
-        #                             DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
-        #                         ]).load_data()
-            
-        #     with open("docs.pkl", "wb") as f:
-        #         pickle.dump(docs, f)
+    if os.path.exists("docs.pkl"):
+        print("using cached docs.pkl")
+        with open("docs.pkl", "rb") as f:
+            docs = pickle.load(f)
+    else:
+        docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False,
+                            file_filters=[
+                                FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
+                                FileFilter(regex=r"\.zip$", filter_type=FilterType.EXCLUDE),
+                            ],
+                            directory_filters=[
+                                DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
+                                DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
+                            ]).load_data()
+        
+        with open("docs.pkl", "wb") as f:
+            pickle.dump(docs, f)
 
-    docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False).load_data()
+    # docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False).load_data()
 
     set_doc_service(DocService(docs)) # 'cache' the documents for later use by our ContextEnricher
 
@@ -85,12 +85,11 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
         transformations=[
             IdentitySplitter(),
             SummaryExtractor(llm=language_model or Settings.llm, num_workers=2),
-            CodeSplitter(splitter_registry=splitter_registry, exclude_file_extensions=["md", "json"]), 
-            # ContextEnricher(llm=language_model or Settings.llm), 
+            CodeSplitter(splitter_registry=splitter_registry), 
             SolutionExtractor(), 
-            SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=3),
-            EntityExtractor(llm=language_model or Settings.llm, num_workers=3),
-            QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=3),
+            SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=2),
+            EntityExtractor(llm=language_model or Settings.llm, num_workers=2),
+            QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=1),
             embed_model or Settings.embed_model
         ],
         docstore=doc_store,
