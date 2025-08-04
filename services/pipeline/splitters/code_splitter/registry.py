@@ -1,4 +1,5 @@
-from llama_index.core.node_parser import CodeSplitter
+from llama_index.core.node_parser import CodeSplitter, JSONNodeParser, MarkdownNodeParser, HTMLNodeParser, TokenTextSplitter 
+from llama_index.core.node_parser.interface import NodeParser
 
 DEFAULT_CHUNK_LINES = 40
 DEFAULT_LINES_OVERLAP = 15
@@ -50,22 +51,40 @@ class CodeSplitterRegistry():
             "clj": "clojure",
             "ex": "elixir",
             "exs": "elixir",
+            "txt": "text",  # generic text files
         }
     
-    def get_splitter(self, path: str) -> CodeSplitter:
+    def get_splitter(self, path: str) -> CodeSplitter | NodeParser:
         """Get a CodeSplitter for the given file path, creating it if necessary."""
         file_extension = path.split('.')[-1]
         if not self.is_supported(path):
             raise ValueError(f"Unsupported file extension: {file_extension}")
 
         language = self._language_map[file_extension]
+        
         if language in self.codeSplitters:
             return self.codeSplitters[language]
 
-        self.codeSplitters[language] = CodeSplitter.from_defaults(
-            language=language,
-            **self.splitter_params
-        )
+        if language == "json":
+            self.codeSplitters[language] = JSONNodeParser().from_defaults()
+
+        elif language == "markdown":
+            self.codeSplitters[language] = MarkdownNodeParser().from_defaults()
+
+        elif language == "html":
+            self.codeSplitters[language] = HTMLNodeParser().from_defaults()
+        elif language == "text":
+            self.codeSplitters[language] = TokenTextSplitter(    
+                chunk_size=4000,                  
+                chunk_overlap=200,
+                backup_separators=["\n\n", "\n", " "],
+            )
+
+        else:
+            self.codeSplitters[language] = CodeSplitter.from_defaults(
+                language=language,
+                **self.splitter_params
+            )
 
         return self.codeSplitters[language]
     

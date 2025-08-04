@@ -30,8 +30,8 @@ class SolutionExtractor(BaseExtractor):
         file_path = node.metadata.get("file_path", "")
         if not file_path.startswith("Solutions/") or len(file_path.split('/')) < 2:
             return {}
-        
-        solution =  file_path.split('/')[1]
+
+        solution = file_path.split('/')[1]
         return {"solution": solution}
 
     async def aextract(self, nodes: Sequence[BaseNode]) -> List[Dict]:

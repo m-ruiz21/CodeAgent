@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 import os
 import pickle
 import nltk
@@ -13,13 +14,12 @@ from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.llms import LLM
 from llama_index.core.extractors import SummaryExtractor, QuestionsAnsweredExtractor
 from llama_index.core.schema import BaseNode
+from llama_index.core.node_parser import TokenTextSplitter
 
 from services.github.utils.path_filter import DirectoryFilter, FileFilter, FilterType
-from services.pipeline.context_enrichment.context_enricher import ContextEnricher
+from services.pipeline.extractors.solution_extractor.safe_extractor import SafeExtractor
 from services.pipeline.splitters.code_splitter.code_splitter import CodeSplitter, CodeSplitterRegistry
 from services.github.github_loader import GithubReader
-from services.cache.doc_service import DocService, set_doc_service
-from services.pipeline.extractors.entity_extractor.entity_extractor import EntityExtractor
 from services.pipeline.extractors.solution_extractor.solution_extractor import SolutionExtractor
 from services.pipeline.splitters.identity_splitter.identity_splitter import IdentitySplitter
 
@@ -33,8 +33,9 @@ Here is the content of the section:
 Summarize the key topics and entities of the section. \
 
 In your summary, make sure to:
-1. Mention the main entities and their roles in the code. 
-2. Provide a concise summary that captures the essence of the code snippet and its relationship to the surrounding context.
+1. Mention the main entities and their meaning relative to the code and general Solution
+2. Provide a concise summary that captures the essence of the code snippet and its relationship to the surrounding context
+3. Highlight any important functions, classes, or methods and their purposes.
 
 Summary: """
 
@@ -53,9 +54,9 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
 
     doc_store = RedisDocumentStore.from_host_and_port("localhost", 6379, namespace="document_store")
     
-    vector_store.delete_index()
-    vector_store.create_index()
-    cache.clear()
+    # vector_store.delete_index()
+    # vector_store.create_index()
+    # cache.clear()
 
     if os.path.exists("docs.pkl"):
         print("using cached docs.pkl")
@@ -66,10 +67,15 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
                             file_filters=[
                                 FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
                                 FileFilter(regex=r"\.zip$", filter_type=FilterType.EXCLUDE),
+                                FileFilter(regex=r"\.tar$", filter_type=FilterType.EXCLUDE),
+                                FileFilter(regex=r"\.png$", filter_type=FilterType.EXCLUDE),
+                                FileFilter(regex=r"\.jpg$", filter_type=FilterType.EXCLUDE),
+                                FileFilter(regex=r"\.jpeg$", filter_type=FilterType.EXCLUDE),
                             ],
                             directory_filters=[
                                 DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
                                 DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
+                                DirectoryFilter(regex=r"(?:\.python_packages|__pycache__|/lib/)", filter_type=FilterType.EXCLUDE),
                             ]).load_data()
         
         with open("docs.pkl", "wb") as f:
@@ -77,19 +83,29 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
 
     # docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False).load_data()
 
-    set_doc_service(DocService(docs)) # 'cache' the documents for later use by our ContextEnricher
+    splitter_registry = CodeSplitterRegistry(chunk_lines=100, chunk_lines_overlap=25, max_chars=10000)
+    token_truncator = TokenTextSplitter(    # enforce ada token limit
+        chunk_size=7800,                    # safe headroom for ~8k-token ada
+        chunk_overlap=300,
+        backup_separators=["\n\n", "\n", " "],
+    )
 
-    splitter_registry = CodeSplitterRegistry(chunk_lines=100, chunk_lines_overlap=25, max_chars=3000)
-
+    
     pipeline = IngestionPipeline(
         transformations=[
-            IdentitySplitter(),
-            SummaryExtractor(llm=language_model or Settings.llm, num_workers=2),
-            CodeSplitter(splitter_registry=splitter_registry), 
+            IdentitySplitter(),  # identity splitter to keep original text
             SolutionExtractor(), 
-            SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=2),
-            EntityExtractor(llm=language_model or Settings.llm, num_workers=2),
-            QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=1),
+            SafeExtractor(
+                SummaryExtractor(llm=language_model or Settings.llm, num_workers=2)  # summarize the parent code
+            ), 
+            CodeSplitter(splitter_registry=splitter_registry), 
+            SafeExtractor(
+                SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=2)
+            ),
+            SafeExtractor(
+                QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=2)
+            ),
+            token_truncator, # truncate to fit in ada token limit
             embed_model or Settings.embed_model
         ],
         docstore=doc_store,

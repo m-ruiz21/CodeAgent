@@ -1,8 +1,8 @@
 import os
 import argparse
-import pickle
 from typing import Dict, Iterator, List, TypeVar, Sequence
 from dotenv import load_dotenv
+import nest_asyncio
 
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
@@ -12,6 +12,9 @@ from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.llms import LLM
 from redisvl.schema import IndexSchema
 from pipeline import run_pipeline
+
+# Apply nest_asyncio to allow nested event loops
+nest_asyncio.apply()
 
 load_dotenv()
 github_key = os.getenv("GITHUB_KEY")

@@ -1,6 +1,8 @@
 from typing import Any, List
 from tqdm import tqdm
 from llama_index.core.schema import TransformComponent, BaseNode, TextNode
+from llama_index.core.node_parser.interface import NodeParser, TextSplitter
+from llama_index.core.node_parser.node_utils import build_nodes_from_splits
 import time
 start_time = time.time()
 
@@ -40,5 +42,10 @@ class CodeSplitter(TransformComponent):
 
         splitter = self._registry.get_splitter(file_path)
 
-        split_node_text = splitter.split_text(node.text)
-        return [TextNode(text=text, metadata={**node.metadata, "chunk": i, "parent_file_summary": node.metadata.get("section_summary", "[None Given or Available]")}) for i, text in enumerate(split_node_text)]
+        if not isinstance(splitter, TextSplitter) and isinstance(splitter, NodeParser):
+            split_nodes = splitter.get_nodes_from_node(node)
+        else:
+            split_node_text = splitter.split_text(node.text)
+            split_nodes = build_nodes_from_splits(split_node_text, node, ref_doc=node)
+
+        return [TextNode(text=child_node.text, metadata={**node.metadata, "chunk": i, "parent_file_summary": node.metadata.get("section_summary", "[None Given or Available]")}) for i, child_node in enumerate(split_nodes)]
