@@ -13,7 +13,6 @@ from llama_index.core.llms import LLM
 from redisvl.schema import IndexSchema
 from pipeline import run_pipeline
 
-# Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
 
 load_dotenv()

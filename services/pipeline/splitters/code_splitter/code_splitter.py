@@ -48,4 +48,4 @@ class CodeSplitter(TransformComponent):
             split_node_text = splitter.split_text(node.text)
             split_nodes = build_nodes_from_splits(split_node_text, node, ref_doc=node)
 
-        return [TextNode(text=child_node.text, metadata={**node.metadata, "chunk": i, "parent_file_summary": node.metadata.get("section_summary", "[None Given or Available]")}) for i, child_node in enumerate(split_nodes)]
+        return [TextNode(text=child_node.text, metadata={**node.metadata, "chunk": i}) for i, child_node in enumerate(split_nodes)]

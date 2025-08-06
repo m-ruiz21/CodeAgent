@@ -4,7 +4,6 @@ llama-index-readers-github
 llama-index-storage-docstore-redis
 llama-index-vector-stores-redis
 fastmcp
-jupyter
 tree_sitter_language_pack
 tree-sitter-languages
 tree-sitter
@@ -12,3 +11,4 @@ python-dotenv
 pydantic
 pydantic-ai
 nest-asyncio
+PyGithub

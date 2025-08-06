@@ -1,9 +1,0 @@
-{
-    "name": "Pound Repository",
-    "description": "Access and query the Pound repository on GitHub.",
-    "pipeline": "github",
-    "pipeline_args": {
-        "url": "https://github.com/m-ruiz21/pound",
-        "branch": "master"
-    }
-}

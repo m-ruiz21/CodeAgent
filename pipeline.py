@@ -36,6 +36,11 @@ In your summary, make sure to:
 1. Mention the main entities and their meaning relative to the code and general Solution
 2. Provide a concise summary that captures the essence of the code snippet and its relationship to the surrounding context
 3. Highlight any important functions, classes, or methods and their purposes.
+4. make sure to consider its role in the overall Azure Sentinel Connector, does it:
+    a. handle data ingestion
+    b. authenticate
+    c. define the ui?
+    d. provide any details about the general usage and purpose?
 
 Summary: """
 
@@ -45,7 +50,7 @@ def batched(seq: Sequence[T], size: int) -> Iterator[List[T]]:
     for idx in range(0, len(seq), size):
         yield list(seq[idx : idx + size])
 
-def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEmbedding, vector_store: RedisVectorStore, github_key: str) -> List[BaseNode]:
+def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEmbedding, vector_store: RedisVectorStore, github_key: str) -> None:
 
     cache = IngestionCache(
             cache=RedisKVStore.from_host_and_port("localhost", 6379),
@@ -54,34 +59,16 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
 
     doc_store = RedisDocumentStore.from_host_and_port("localhost", 6379, namespace="document_store")
     
-    # vector_store.delete_index()
-    # vector_store.create_index()
-    # cache.clear()
-
-    if os.path.exists("docs.pkl"):
-        print("using cached docs.pkl")
-        with open("docs.pkl", "rb") as f:
-            docs = pickle.load(f)
-    else:
-        docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False,
-                            file_filters=[
-                                FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
-                                FileFilter(regex=r"\.zip$", filter_type=FilterType.EXCLUDE),
-                                FileFilter(regex=r"\.tar$", filter_type=FilterType.EXCLUDE),
-                                FileFilter(regex=r"\.png$", filter_type=FilterType.EXCLUDE),
-                                FileFilter(regex=r"\.jpg$", filter_type=FilterType.EXCLUDE),
-                                FileFilter(regex=r"\.jpeg$", filter_type=FilterType.EXCLUDE),
-                            ],
-                            directory_filters=[
-                                DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
-                                DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
-                                DirectoryFilter(regex=r"(?:\.python_packages|__pycache__|/lib/)", filter_type=FilterType.EXCLUDE),
-                            ]).load_data()
-        
-        with open("docs.pkl", "wb") as f:
-            pickle.dump(docs, f)
-
-    # docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False).load_data()
+    docs = GithubReader(token=str(github_key), url=url, branch=branch, parse=False,
+                        file_filters=[
+                            FileFilter(regex=r"^Solutions/[^/]+/Data Connectors/.*", filter_type=FilterType.INCLUDE),
+                            FileFilter(regex=r"\.(zip|tar|png|jpg|jpeg|svg)$", filter_type=FilterType.EXCLUDE),
+                        ],
+                        directory_filters=[
+                            DirectoryFilter(regex=r"^Solutions", filter_type=FilterType.INCLUDE),
+                            DirectoryFilter(regex=r"^Solutions/[^/]+/(?!Data Connectors).*", filter_type=FilterType.EXCLUDE),
+                            DirectoryFilter(regex=r"(?:\.python_packages|__pycache__|/lib/)", filter_type=FilterType.EXCLUDE),
+                        ]).load_data()
 
     splitter_registry = CodeSplitterRegistry(chunk_lines=100, chunk_lines_overlap=25, max_chars=10000)
     token_truncator = TokenTextSplitter(    # enforce ada token limit
@@ -90,20 +77,15 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
         backup_separators=["\n\n", "\n", " "],
     )
 
-    
     pipeline = IngestionPipeline(
         transformations=[
-            IdentitySplitter(),  # identity splitter to keep original text
+            CodeSplitter(splitter_registry=splitter_registry), 
             SolutionExtractor(), 
             SafeExtractor(
-                SummaryExtractor(llm=language_model or Settings.llm, num_workers=2)  # summarize the parent code
-            ), 
-            CodeSplitter(splitter_registry=splitter_registry), 
-            SafeExtractor(
-                SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=2)
+                SummaryExtractor(llm=language_model or Settings.llm, prompt_template=SUMMARY_EXTRACT_TEMPLATE, num_workers=3)
             ),
             SafeExtractor(
-                QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=2)
+                QuestionsAnsweredExtractor(llm=language_model or Settings.llm, questions=3, num_workers=3)
             ),
             token_truncator, # truncate to fit in ada token limit
             embed_model or Settings.embed_model
@@ -130,5 +112,3 @@ def run_pipeline(url: str, branch: str, language_model: LLM, embed_model: BaseEm
         print(f"-> {len(nodes)} nodes ingested (running total: {total_nodes})")
 
     print(f"Done. Ingested {total_nodes} nodes.")
-
-    return nodes
