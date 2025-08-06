@@ -1,6 +1,6 @@
-# MCP server for querying
-from typing import List, Literal 
-from fastmcp import Context, FastMCP
+import argparse
+from typing import List
+from fastmcp import FastMCP
 
 from github import Github
 from llama_index.core.postprocessor import LLMRerank
@@ -16,7 +16,6 @@ from llama_index.vector_stores.redis import RedisVectorStore
 from redisvl.schema import IndexSchema
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core import QueryBundle
-from llama_index.readers.github.repository.github_client import GithubClient
 server = FastMCP("Azure Sentinel Connector Query Server")
 
 load_dotenv()
@@ -131,7 +130,12 @@ def fetch(path: str = Field(description="The path of the document to retrieve"))
     try:
         repository = gh.get_repo("Azure/Azure-Sentinel")
         file_content = repository.get_contents(path)
-        text = file_content.decoded_content.decode()
+        
+        # check if file_content is list 
+        if isinstance(file_content, list):
+            text = "\n".join([f"{file.path}:\n{file.decoded_content.decode()}" for file in file_content])
+        else:
+            text = file_content.decoded_content.decode()
 
         return RetrievalResult(
             id=path,
@@ -152,4 +156,15 @@ def fetch(path: str = Field(description="The path of the document to retrieve"))
 
 
 if __name__ == "__main__":
-    server.run(transport="http")
+    parser = argparse.ArgumentParser(
+        description="MCP server for querying Azure Sentinel Connector code snippets."
+    )
+    parser.add_argument(
+        "transport",
+        default="http",
+        help="Transport method to run the server (e.g., http, sse, etc)"
+    )
+    args = parser.parse_args()
+    transport = args.transport
+
+    server.run(transport=transport)
